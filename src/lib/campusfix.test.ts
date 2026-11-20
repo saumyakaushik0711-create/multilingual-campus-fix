@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   complaintsFromCsv,
   computeCost,
+  isRetryableError,
+  MAX_RETRIES,
   normalizeClassification,
   parseModelJson,
+  RETRY_DELAY_MS,
   routeStatus,
+  withRetries,
 } from "./campusfix";
 
 describe("routing", () => {
@@ -50,5 +54,79 @@ describe("csv", () => {
   it("uses the complaint column and handles quoted commas", () => {
     const csv = 'id,complaint\n1,"tap leak, 4th floor"\n2,fan not working\n';
     expect(complaintsFromCsv(csv)).toEqual(["tap leak, 4th floor", "fan not working"]);
+  });
+});
+
+describe("busy detection", () => {
+  it("treats 503, 429 and high-demand wording as retryable", () => {
+    expect(isRetryableError(503, "Service Unavailable")).toBe(true);
+    expect(isRetryableError(429, "This model is currently experiencing high demand")).toBe(true);
+    expect(isRetryableError(200, "Model is overloaded")).toBe(true);
+  });
+  it("leaves real failures alone", () => {
+    expect(isRetryableError(400, "Invalid JSON payload")).toBe(false);
+    expect(isRetryableError(401, "API key not valid")).toBe(false);
+    expect(isRetryableError(403, "Permission denied on project")).toBe(false);
+  });
+});
+
+describe("retry policy", () => {
+  it("waits 2s between retries and tries a busy request 4 times in total", async () => {
+    const waits: number[] = [];
+    const notices: number[] = [];
+    let calls = 0;
+    const value = await withRetries(
+      async () => {
+        calls++;
+        if (calls <= 3) throw new Error("This model is currently experiencing high demand");
+        return "ok";
+      },
+      {
+        isRetryable: (e) => isRetryableError(503, (e as Error).message),
+        sleep: async (ms) => {
+          waits.push(ms);
+        },
+        onRetry: (attempt) => {
+          notices.push(attempt);
+        },
+      },
+    );
+    expect(value).toBe("ok");
+    expect(calls).toBe(MAX_RETRIES + 1);
+    expect(waits).toEqual([RETRY_DELAY_MS, RETRY_DELAY_MS, RETRY_DELAY_MS]);
+    expect(notices).toEqual([1, 2, 3]);
+  });
+
+  it("gives up after 3 retries and rethrows the last error", async () => {
+    let calls = 0;
+    await expect(
+      withRetries(
+        async () => {
+          calls++;
+          throw new Error("high demand");
+        },
+        { isRetryable: () => true, sleep: async () => {} },
+      ),
+    ).rejects.toThrow("high demand");
+    expect(calls).toBe(MAX_RETRIES + 1);
+  });
+
+  it("does not retry a request Gemini rejected for a real reason", async () => {
+    let calls = 0;
+    await expect(
+      withRetries(
+        async () => {
+          calls++;
+          throw new Error("API key not valid");
+        },
+        { isRetryable: (e) => isRetryableError(401, (e as Error).message), sleep: async () => {} },
+      ),
+    ).rejects.toThrow("API key not valid");
+    expect(calls).toBe(1);
+  });
+
+  it("keeps the policy at 3 retries with a 2 second pause", () => {
+    expect(MAX_RETRIES).toBe(3);
+    expect(RETRY_DELAY_MS).toBe(2000);
   });
 });

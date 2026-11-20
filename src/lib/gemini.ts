@@ -1,9 +1,11 @@
 import {
   computeCost,
   DEPARTMENTS,
+  isRetryableError,
   normalizeClassification,
   parseModelJson,
   URGENCIES,
+  withRetries,
   type Classification,
 } from "./campusfix";
 
@@ -76,6 +78,13 @@ export interface ClassifyResult {
   outputTokens: number;
   costUsd: number;
   costInr: number;
+  /** Times the request was retried because Gemini reported it was busy. */
+  retries: number;
+}
+
+export interface ClassifyOptions {
+  /** Called before each wait, with the 1-based retry number and the error that caused it. */
+  onRetry?: (attempt: number, error: GeminiError) => void;
 }
 
 interface GeminiResponse {
@@ -84,7 +93,16 @@ interface GeminiResponse {
   error?: { message?: string };
 }
 
-export async function classifyComplaint(text: string, apiKey: string): Promise<ClassifyResult> {
+interface RawReply {
+  json: GeminiResponse;
+  latencyMs: number;
+}
+
+export async function classifyComplaint(
+  text: string,
+  apiKey: string,
+  options: ClassifyOptions = {},
+): Promise<ClassifyResult> {
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: "user", parts: [{ text: `Complaint: ${text}` }] }],
@@ -96,18 +114,30 @@ export async function classifyComplaint(text: string, apiKey: string): Promise<C
     },
   };
 
-  const start = performance.now();
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as GeminiResponse;
-  const latencyMs = performance.now() - start;
-
-  if (!res.ok) {
-    throw new GeminiError(json.error?.message ?? `Gemini request failed (${res.status})`, res.status);
-  }
+  let retries = 0;
+  const { json, latencyMs } = await withRetries(
+    async (): Promise<RawReply> => {
+      const start = performance.now();
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify(body),
+      });
+      const parsed = (await res.json().catch(() => ({}))) as GeminiResponse;
+      const elapsed = performance.now() - start;
+      if (!res.ok) {
+        throw new GeminiError(parsed.error?.message ?? `Gemini request failed (${res.status})`, res.status);
+      }
+      return { json: parsed, latencyMs: elapsed };
+    },
+    {
+      isRetryable: (error) => error instanceof GeminiError && isRetryableError(error.status, error.message),
+      onRetry: (attempt, error) => {
+        retries = attempt;
+        options.onRetry?.(attempt, error as GeminiError);
+      },
+    },
+  );
 
   const replyText = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
   if (!replyText) throw new GeminiError("Gemini returned an empty response", 502);
@@ -117,5 +147,5 @@ export async function classifyComplaint(text: string, apiKey: string): Promise<C
   const outputTokens = json.usageMetadata?.candidatesTokenCount ?? 0;
   const { usd, inr } = computeCost(promptTokens, outputTokens);
 
-  return { classification, latencyMs, promptTokens, outputTokens, costUsd: usd, costInr: inr };
+  return { classification, latencyMs, promptTokens, outputTokens, costUsd: usd, costInr: inr, retries };
 }

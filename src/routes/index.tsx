@@ -21,7 +21,7 @@ import { SettingsDialog } from "@/components/campusfix/SettingsDialog";
 import { SummaryCards } from "@/components/campusfix/SummaryCards";
 import { TicketCard } from "@/components/campusfix/TicketCard";
 import { useGeminiKey, useTickets } from "@/hooks/use-campusfix";
-import { DEPARTMENTS, routeStatus, type Department, type Ticket } from "@/lib/campusfix";
+import { DEPARTMENTS, MAX_RETRIES, routeStatus, type Department, type Ticket } from "@/lib/campusfix";
 import { classifyComplaint, GeminiError } from "@/lib/gemini";
 import { cn } from "@/lib/utils";
 
@@ -67,7 +67,9 @@ function Index() {
     }
     setBusy(true);
     try {
-      const r = await classifyComplaint(text, apiKey);
+      const r = await classifyComplaint(text, apiKey, {
+        onRetry: (attempt) => toast.info(`Gemini is busy — retrying (${attempt}/${MAX_RETRIES})`),
+      });
       const status = routeStatus(r.classification.confidence);
       const ticket: Ticket = {
         id: crypto.randomUUID(),

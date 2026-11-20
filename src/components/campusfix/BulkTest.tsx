@@ -12,6 +12,7 @@ import {
   fmtMs,
   fmtUsd,
   formatLocation,
+  MAX_RETRIES,
   routeStatus,
   toCsv,
   type Ticket,
@@ -42,8 +43,6 @@ interface Props {
   onTickets: (t: Ticket[]) => void;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -51,6 +50,7 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(0);
   const [addToQueues, setAddToQueues] = useState(true);
+  const [retryNote, setRetryNote] = useState<string | null>(null);
   const stopRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -70,20 +70,6 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
     toast.success(`Loaded ${list.length} complaints from ${file.name}`);
   };
 
-  const classifyWithRetry = async (text: string): Promise<ClassifyResult> => {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await classifyComplaint(text, apiKey);
-      } catch (e) {
-        if (e instanceof GeminiError && (e.status === 429 || e.status === 503) && attempt < 3) {
-          await sleep(4000 * (attempt + 1));
-          continue;
-        }
-        throw e;
-      }
-    }
-  };
-
   const run = async () => {
     if (!apiKey) {
       onNeedKey();
@@ -97,6 +83,7 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
     setRunning(true);
     setRows([]);
     setDone(0);
+    setRetryNote(null);
     setTotal(lines.length);
     const out: Row[] = [];
     const newTickets: Ticket[] = [];
@@ -105,7 +92,9 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
       if (stopRef.current) break;
       let row: Row;
       try {
-        const result = await classifyWithRetry(text);
+        const result = await classifyComplaint(text, apiKey, {
+          onRetry: (attempt) => setRetryNote(`Gemini is busy — retrying (${attempt}/${MAX_RETRIES})`),
+        });
         row = { text, result };
         newTickets.push({
           id: crypto.randomUUID(),
@@ -132,6 +121,7 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
       out.push(row);
       setRows([...out]);
       setDone(out.length);
+      setRetryNote(null);
     }
 
     if (addToQueues && newTickets.length) onTickets(newTickets.reverse());
@@ -242,6 +232,7 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
               <span className="font-mono">{pct}%</span>
             </div>
             <Progress value={pct} className="h-2.5" />
+            {retryNote && <p className="text-xs font-medium text-review">{retryNote}</p>}
           </div>
         )}
       </section>

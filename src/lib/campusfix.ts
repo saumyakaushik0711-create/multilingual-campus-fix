@@ -12,6 +12,10 @@ export const INPUT_USD_PER_MILLION = 0.1;
 export const OUTPUT_USD_PER_MILLION = 0.4;
 export const USD_TO_INR = 85;
 
+/** How many extra attempts a busy-Gemini request gets, and how long to wait before each one. */
+export const MAX_RETRIES = 3;
+export const RETRY_DELAY_MS = 2000;
+
 export interface Location {
   block: string;
   floor: string;
@@ -53,6 +57,43 @@ export function computeCost(promptTokens: number, outputTokens: number) {
 /** Below the threshold goes to human review; at or above goes to the department queue. */
 export function routeStatus(confidence: number): Extract<TicketStatus, "routed" | "review"> {
   return confidence < CONFIDENCE_THRESHOLD ? "review" : "routed";
+}
+
+const BUSY_RE =
+  /high demand|overload|capacity|temporarily unavailable|service unavailable|try again|exhausted|rate limit|is busy/i;
+
+/** True when Gemini says it's swamped: a 503/429 status, or a "high demand" style message. */
+export function isRetryableError(status: number, message = ""): boolean {
+  return status === 503 || status === 429 || BUSY_RE.test(message);
+}
+
+export interface RetryOptions {
+  /** Extra attempts after the first one. */
+  retries?: number;
+  /** Pause before each retry. */
+  delayMs?: number;
+  isRetryable: (error: unknown) => boolean;
+  sleep?: (ms: number) => Promise<void>;
+  /** Fired before each wait, with the 1-based retry number. */
+  onRetry?: (attempt: number, error: unknown) => void;
+}
+
+/** Runs `run`, retrying retryable failures up to `retries` times with a fixed pause. */
+export async function withRetries<T>(run: () => Promise<T>, opts: RetryOptions): Promise<T> {
+  const retries = opts.retries ?? MAX_RETRIES;
+  const delayMs = opts.delayMs ?? RETRY_DELAY_MS;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt >= retries || !opts.isRetryable(error)) throw error;
+      attempt++;
+      opts.onRetry?.(attempt, error);
+      await sleep(delayMs);
+    }
+  }
 }
 
 function normalizeDepartment(value: unknown): Department {
