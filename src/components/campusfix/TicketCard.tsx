@@ -1,0 +1,89 @@
+import { useState } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { Check, Coins, MapPin, Timer, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DEPARTMENTS, fmtInr, fmtMs, fmtUsd, formatLocation, type Department, type Ticket } from "@/lib/campusfix";
+import { ConfidenceBadge, DeptBadge, UrgencyBadge } from "./meta";
+
+interface Props {
+  ticket: Ticket;
+  onApprove: (id: string, d: Department) => void;
+  onRemove: (id: string) => void;
+}
+
+export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
+  const [reassign, setReassign] = useState<Department>(t.classification.department);
+  const c = t.classification;
+
+  return (
+    <article className="animate-card-in rounded-2xl border bg-card p-4 shadow-card">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {t.status === "review" ? (
+          <Badge variant="review">Human review</Badge>
+        ) : (
+          <DeptBadge department={t.department} />
+        )}
+        <UrgencyBadge urgency={c.urgency} />
+        <ConfidenceBadge confidence={c.confidence} />
+        {t.status === "approved" && (
+          <Badge variant="outline" className="gap-1">
+            <Check className="size-3" /> Staff approved
+          </Badge>
+        )}
+        <button
+          onClick={() => onRemove(t.id)}
+          className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+          aria-label="Delete ticket"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+
+      <p className="mt-3 text-[15px] leading-snug">“{t.text}”</p>
+
+      <div className="mt-3 flex items-start gap-1.5 text-sm">
+        <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+        <span className={formatLocation(c.location) === "Not specified" ? "text-muted-foreground" : "font-medium"}>
+          {formatLocation(c.location)}
+        </span>
+      </div>
+      <p className="mt-1.5 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">AI: </span>
+        {c.department} — {c.reason}
+      </p>
+
+      {t.status === "review" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-review-soft p-3">
+          <span className="text-xs font-semibold text-review">Assign to</span>
+          <select
+            value={reassign}
+            onChange={(e) => setReassign(e.target.value as Department)}
+            className="h-8 rounded-md border bg-card px-2 text-sm"
+            aria-label="Reassign department"
+          >
+            {DEPARTMENTS.map((d) => (
+              <option key={d}>{d}</option>
+            ))}
+          </select>
+          <Button size="sm" onClick={() => onApprove(t.id, reassign)}>
+            <Check /> Approve
+          </Button>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 font-mono text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Timer className="size-3.5" /> {fmtMs(t.latencyMs)}
+        </span>
+        <span className="flex items-center gap-1">
+          <Coins className="size-3.5" /> {fmtUsd(t.costUsd)} · {fmtInr(t.costInr)}
+        </span>
+        <span>
+          {t.promptTokens}+{t.outputTokens} tok
+        </span>
+        <span className="ml-auto font-sans">{formatDistanceToNow(t.createdAt, { addSuffix: true })}</span>
+      </div>
+    </article>
+  );
+}

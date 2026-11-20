@@ -28,3 +28,8 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+- Pure business rules (departments, routing threshold, cost, JSON/CSV parsing) live in `src/lib/campusfix.ts` with tests in `src/lib/campusfix.test.ts`; keep UI free of these calculations so they stay testable.
+- Gemini is called directly from the browser (`src/lib/gemini.ts`) with a user-supplied key, because the hackathon brief requires a bring-your-own-key settings modal and no backend.
+- Tickets and the API key persist in localStorage, read inside `useEffect` (see `src/hooks/use-campusfix.ts`) to avoid SSR hydration mismatches.
