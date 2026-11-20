@@ -1,14 +1,18 @@
 import {
+  chatModels,
   computeCost,
+  DEFAULT_MODEL,
   isRetryableError,
   normalizeClassification,
   parseModelJson,
   withRetries,
   type Classification,
+  type ModelInfo,
 } from "./campusfix";
 
-export const GROQ_MODEL = "llama-3.3-70b-versatile";
+export const GROQ_MODEL = DEFAULT_MODEL;
 export const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+export const GROQ_MODELS_ENDPOINT = "https://api.groq.com/openai/v1/models";
 
 export const SYSTEM_PROMPT = `You are CampusFix AI, a complaint router for an Indian college campus.
 Students write in English, Hinglish (Hindi in Roman script) or Romanised Punjabi, with typos and slang
@@ -60,6 +64,8 @@ export interface ClassifyResult {
 }
 
 export interface ClassifyOptions {
+  /** Groq model id; defaults to GROQ_MODEL. */
+  model?: string;
   /** Called before each wait, with the 1-based retry number and the error that caused it. */
   onRetry?: (attempt: number, error: GroqError) => void;
 }
@@ -81,7 +87,7 @@ export async function classifyComplaint(
   options: ClassifyOptions = {},
 ): Promise<ClassifyResult> {
   const body = {
-    model: GROQ_MODEL,
+    model: options.model || GROQ_MODEL,
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
@@ -124,4 +130,20 @@ export async function classifyComplaint(
   const { usd, inr } = computeCost(promptTokens, outputTokens);
 
   return { classification, latencyMs, promptTokens, outputTokens, costUsd: usd, costInr: inr, retries };
+}
+
+/** Fetches the chat models this key can use (speech, guard and embedding models removed). */
+export async function fetchChatModels(apiKey: string): Promise<string[]> {
+  const list = await withRetries(
+    async () => {
+      const res = await fetch(GROQ_MODELS_ENDPOINT, { headers: { Authorization: `Bearer ${apiKey}` } });
+      const parsed = (await res.json().catch(() => ({}))) as { data?: ModelInfo[]; error?: { message?: string } };
+      if (!res.ok) {
+        throw new GroqError(parsed.error?.message ?? `Couldn't load Groq models (${res.status})`, res.status);
+      }
+      return parsed.data ?? [];
+    },
+    { isRetryable: (error) => error instanceof GroqError && isRetryableError(error.status, error.message) },
+  );
+  return chatModels(list);
 }

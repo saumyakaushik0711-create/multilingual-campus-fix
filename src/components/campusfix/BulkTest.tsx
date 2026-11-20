@@ -39,11 +39,13 @@ interface Row {
 
 interface Props {
   apiKey: string;
+  /** Resolves the Groq model to use, auto-picking one from the live list on first use. */
+  getModel: (apiKey: string) => Promise<string>;
   onNeedKey: () => void;
   onTickets: (t: Ticket[]) => void;
 }
 
-export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
+export function BulkTest({ apiKey, getModel, onNeedKey, onTickets }: Props) {
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
@@ -87,12 +89,14 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
     setTotal(lines.length);
     const out: Row[] = [];
     const newTickets: Ticket[] = [];
+    const model = await getModel(apiKey);
 
     for (const text of lines) {
       if (stopRef.current) break;
       let row: Row;
       try {
         const result = await classifyComplaint(text, apiKey, {
+          model,
           onRetry: (attempt) => setRetryNote(`Groq is busy — retrying (${attempt}/${MAX_RETRIES})`),
         });
         row = { text, result };

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { classifyComplaint, GROQ_ENDPOINT, GROQ_MODEL } from "./groq";
+import { classifyComplaint, fetchChatModels, GROQ_ENDPOINT, GROQ_MODEL, GROQ_MODELS_ENDPOINT } from "./groq";
 
 const OK_BODY = {
   choices: [
@@ -77,5 +77,26 @@ describe("classifyComplaint via Groq", () => {
 
     await expect(classifyComplaint("test", "bad-key")).rejects.toThrow("Invalid API Key");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the chosen model when one is given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, OK_BODY));
+    vi.stubGlobal("fetch", fetchMock);
+    await classifyComplaint("tap leak", "gsk_test", { model: "qwen/qwen3-32b" });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((JSON.parse(String(init.body)) as { model: string }).model).toBe("qwen/qwen3-32b");
+  });
+
+  it("loads the live model list with the user's key and keeps only chat models", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      reply(200, { data: [{ id: "whisper-large-v3" }, { id: "llama-3.3-70b-versatile" }, { id: "playai-tts" }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const ids = await fetchChatModels("gsk_test");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.groq.com/openai/v1/models");
+    expect(url).toBe(GROQ_MODELS_ENDPOINT);
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer gsk_test");
+    expect(ids).toEqual(["llama-3.3-70b-versatile"]);
   });
 });

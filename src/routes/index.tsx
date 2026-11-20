@@ -20,9 +20,9 @@ import { DEPT_ICON, ReviewIcon } from "@/components/campusfix/meta";
 import { SettingsDialog } from "@/components/campusfix/SettingsDialog";
 import { SummaryCards } from "@/components/campusfix/SummaryCards";
 import { TicketCard } from "@/components/campusfix/TicketCard";
-import { useGroqKey, useTickets } from "@/hooks/use-campusfix";
+import { useGroqKey, useGroqModel, useTickets } from "@/hooks/use-campusfix";
 import { DEPARTMENTS, MAX_RETRIES, routeStatus, type Department, type Ticket } from "@/lib/campusfix";
-import { classifyComplaint, GroqError } from "@/lib/groq";
+import { classifyComplaint, GROQ_MODEL, GroqError } from "@/lib/groq";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -50,7 +50,8 @@ type Tab = "all" | "review" | Department | "bulk";
 
 function Index() {
   const { tickets, loaded, add, approve, remove, clear } = useTickets();
-  const { apiKey, saved, source, save } = useGroqKey();
+  const { apiKey, envKey, saved, source, save } = useGroqKey();
+  const { model, models, loading: loadingModels, refresh: refreshModels, ensure: ensureModel } = useGroqModel();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
   const [busy, setBusy] = useState(false);
@@ -67,7 +68,9 @@ function Index() {
     }
     setBusy(true);
     try {
+      const chosen = await ensureModel(apiKey);
       const r = await classifyComplaint(text, apiKey, {
+        model: chosen,
         onRetry: (attempt) => toast.info(`Groq is busy — retrying (${attempt}/${MAX_RETRIES})`),
       });
       const status = routeStatus(r.classification.confidence);
@@ -102,6 +105,44 @@ function Index() {
       return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const isAuthError = (e: unknown) => e instanceof GroqError && (e.status === 401 || e.status === 403);
+
+  const loadModels = async (key: string, preferred: string) => {
+    const k = key.trim() || apiKey;
+    if (!k) return null;
+    try {
+      return await refreshModels(k, preferred);
+    } catch (e) {
+      toast.error(
+        isAuthError(e)
+          ? "Groq rejected this key — check it and try again"
+          : `Couldn't load Groq models: ${e instanceof Error ? e.message : "unknown error"}`,
+      );
+      return null;
+    }
+  };
+
+  const handleSaveSettings = async (key: string, preferred: string) => {
+    save(key);
+    const k = key.trim() || envKey;
+    if (!k) {
+      toast("No API key saved");
+      return true;
+    }
+    try {
+      const picked = await refreshModels(k, preferred || model);
+      toast.success(`API key saved · using ${picked}`);
+      return true;
+    } catch (e) {
+      if (isAuthError(e)) {
+        toast.error("Groq rejected this key — check it and try again");
+        return false;
+      }
+      toast.warning(`Key saved, but the model list didn't load. Using ${model || GROQ_MODEL} for now.`);
+      return true;
     }
   };
 
@@ -183,7 +224,7 @@ function Index() {
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">
         {/* Hero band */}
         <section className="bg-dots relative overflow-hidden rounded-3xl bg-ink p-6 text-ink-foreground sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Llama 3.3 70B on Groq · live routing</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Live routing on Groq{model ? ` · ${model}` : ""}</p>
           <h1 className="mt-2 max-w-2xl text-3xl font-extrabold leading-[1.05] sm:text-4xl">
             “Tap leak kar rha h” → <span className="text-accent">Plumbing, 4th floor, Medium.</span>
           </h1>
@@ -240,7 +281,7 @@ function Index() {
             </nav>
 
             {tab === "bulk" ? (
-              <BulkTest apiKey={apiKey} onNeedKey={needKey} onTickets={add} />
+              <BulkTest apiKey={apiKey} getModel={ensureModel} onNeedKey={needKey} onTickets={add} />
             ) : !loaded ? null : visible.length === 0 ? (
               <EmptyState tab={tab} />
             ) : (
@@ -267,7 +308,15 @@ function Index() {
         onOpenChange={setSettingsOpen}
         saved={saved}
         source={source}
-        onSave={save}
+        model={model}
+        models={models}
+        loadingModels={loadingModels}
+        onSave={handleSaveSettings}
+        onRemoveKey={() => {
+          save("");
+          toast("Saved key removed");
+        }}
+        onRefreshModels={loadModels}
       />
     </div>
   );

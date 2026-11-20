@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatModels,
   complaintsFromCsv,
+  pickBestModel,
   computeCost,
   isRetryableError,
   MAX_RETRIES,
@@ -128,5 +130,47 @@ describe("retry policy", () => {
   it("keeps the policy at 3 retries with a 2 second pause", () => {
     expect(MAX_RETRIES).toBe(3);
     expect(RETRY_DELAY_MS).toBe(2000);
+  });
+});
+
+describe("model choice", () => {
+  const LIVE = [
+    { id: "whisper-large-v3" },
+    { id: "playai-tts" },
+    { id: "meta-llama/llama-guard-4-12b" },
+    { id: "nomic-embed-text-v1.5" },
+    { id: "some-audio-model" },
+    { id: "gemma2-9b-it" },
+    { id: "llama-3.1-8b-instant" },
+    { id: "qwen/qwen3-32b" },
+    { id: "mixtral-8x7b-32768" },
+    { id: "old-llama-70b", active: false },
+  ];
+
+  it("drops audio, whisper, tts, guard, embedding and inactive models", () => {
+    expect(chatModels(LIVE)).toEqual(["gemma2-9b-it", "llama-3.1-8b-instant", "qwen/qwen3-32b", "mixtral-8x7b-32768"]);
+  });
+
+  it("picks llama-3.3-70b-versatile whenever Groq offers it", () => {
+    expect(pickBestModel(["qwen/qwen3-32b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"])).toBe(
+      "llama-3.3-70b-versatile",
+    );
+  });
+
+  it("prefers llama, then qwen, then mixtral", () => {
+    expect(pickBestModel(chatModels(LIVE))).toBe("llama-3.1-8b-instant");
+    expect(pickBestModel(["gemma2-9b-it", "mixtral-8x7b-32768", "qwen/qwen3-32b"])).toBe("qwen/qwen3-32b");
+    expect(pickBestModel(["gemma2-9b-it", "mixtral-8x7b-32768"])).toBe("mixtral-8x7b-32768");
+  });
+
+  it("takes the biggest llama when several are offered", () => {
+    expect(pickBestModel(["llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct"])).toBe(
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+    );
+  });
+
+  it("falls back to the first chat model returned, never a speech model", () => {
+    expect(pickBestModel(["whisper-large-v3", "gemma2-9b-it", "openai/gpt-oss-20b"])).toBe("gemma2-9b-it");
+    expect(pickBestModel(["whisper-large-v3"])).toBeNull();
   });
 });

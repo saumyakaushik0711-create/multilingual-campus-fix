@@ -16,6 +16,44 @@ export const USD_TO_INR = 85;
 export const MAX_RETRIES = 3;
 export const RETRY_DELAY_MS = 2000;
 
+/** Model used when Groq's live model list can't be loaded, and the first choice when it's available. */
+export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+/** Name fragments preferred when auto-picking a chat model, in priority order. */
+export const MODEL_PREFERENCE = ["llama", "qwen", "mixtral"] as const;
+const NON_CHAT_RE = /whisper|tts|guard|embed|audio|orpheus|playai|transcri/i;
+
+export interface ModelInfo {
+  id: string;
+  active?: boolean;
+}
+
+/** False for speech, text-to-speech, safety-guard and embedding models, which can't classify complaints. */
+export function isChatModel(id: string): boolean {
+  return !!id.trim() && !NON_CHAT_RE.test(id);
+}
+
+/** Usable chat model ids from Groq's /models list, in the order Groq returned them. */
+export function chatModels(list: readonly ModelInfo[]): string[] {
+  const ids = list.filter((m) => m.active !== false && isChatModel(m.id)).map((m) => m.id);
+  return [...new Set(ids)];
+}
+
+const modelSizeB = (id: string) => Number(/(\d+(?:\.\d+)?)b(?![a-z])/i.exec(id)?.[1] ?? 0);
+
+/**
+ * Best chat model: the default if offered, else the largest llama, then qwen, then mixtral,
+ * else the first chat model Groq returned.
+ */
+export function pickBestModel(ids: readonly string[]): string | null {
+  const usable = ids.filter(isChatModel);
+  if (usable.includes(DEFAULT_MODEL)) return DEFAULT_MODEL;
+  for (const kw of MODEL_PREFERENCE) {
+    const matches = usable.filter((id) => id.toLowerCase().includes(kw));
+    if (matches.length) return matches.reduce((best, id) => (modelSizeB(id) > modelSizeB(best) ? id : best));
+  }
+  return usable[0] ?? null;
+}
+
 export interface Location {
   block: string;
   floor: string;
