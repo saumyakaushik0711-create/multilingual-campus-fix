@@ -7,7 +7,7 @@ import {
   type Classification,
 } from "./campusfix";
 
-export const GEMINI_MODEL = "gemini-2.5-flash";
+export const GEMINI_MODEL = "gemini-3.8-flash";
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 export const SYSTEM_PROMPT = `You are CampusFix AI, a complaint router for an Indian college campus.

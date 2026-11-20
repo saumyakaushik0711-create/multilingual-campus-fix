@@ -181,7 +181,7 @@ function Index() {
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">
         {/* Hero band */}
         <section className="bg-dots relative overflow-hidden rounded-3xl bg-ink p-6 text-ink-foreground sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Gemini 2.5 Flash · live routing</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Gemini 3.8 Flash · live routing</p>
           <h1 className="mt-2 max-w-2xl text-3xl font-extrabold leading-[1.05] sm:text-4xl">
             “Tap leak kar rha h” → <span className="text-accent">Plumbing, 4th floor, Medium.</span>
           </h1>
