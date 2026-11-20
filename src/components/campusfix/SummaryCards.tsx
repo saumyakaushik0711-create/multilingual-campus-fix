@@ -10,7 +10,7 @@ export function SummaryCards({ tickets }: { tickets: Ticket[] }) {
 
   const cards = [
     { label: "Total tickets", value: total.toString(), sub: "classified so far", icon: Inbox },
-    { label: "Avg latency", value: total ? fmtMs(avgLatency) : "—", sub: "per Gemini call", icon: Timer },
+    { label: "Avg latency", value: total ? fmtMs(avgLatency) : "—", sub: "per Groq call", icon: Timer },
     { label: "Total cost", value: fmtUsd(usd, 5), sub: fmtInr(inr, 3), icon: Coins },
     { label: "Needs review", value: review.toString(), sub: "confidence < 75%", icon: UserCheck },
   ];

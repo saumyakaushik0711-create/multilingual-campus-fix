@@ -8,11 +8,11 @@ export type Urgency = (typeof URGENCIES)[number];
 
 export const NOT_SPECIFIED = "Not specified";
 export const CONFIDENCE_THRESHOLD = 75;
-export const INPUT_USD_PER_MILLION = 0.1;
-export const OUTPUT_USD_PER_MILLION = 0.4;
+export const INPUT_USD_PER_MILLION = 0.59;
+export const OUTPUT_USD_PER_MILLION = 0.79;
 export const USD_TO_INR = 85;
 
-/** How many extra attempts a busy-Gemini request gets, and how long to wait before each one. */
+/** How many extra attempts a busy-AI request gets, and how long to wait before each one. */
 export const MAX_RETRIES = 3;
 export const RETRY_DELAY_MS = 2000;
 
@@ -62,7 +62,7 @@ export function routeStatus(confidence: number): Extract<TicketStatus, "routed" 
 const BUSY_RE =
   /high demand|overload|capacity|temporarily unavailable|service unavailable|try again|exhausted|rate limit|is busy/i;
 
-/** True when Gemini says it's swamped: a 503/429 status, or a "high demand" style message. */
+/** True when the AI service says it's swamped: a 503/429 status, or a "high demand" style message. */
 export function isRetryableError(status: number, message = ""): boolean {
   return status === 503 || status === 429 || BUSY_RE.test(message);
 }

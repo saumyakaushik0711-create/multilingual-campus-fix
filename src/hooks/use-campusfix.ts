@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Department, Ticket } from "@/lib/campusfix";
 
 const TICKETS_KEY = "campusfix.tickets.v1";
-const API_KEY_KEY = "campusfix.geminiKey";
+const API_KEY_KEY = "campusfix.groqKey";
 
 export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -42,8 +42,8 @@ export function useTickets() {
   return { tickets, loaded, add, approve, remove, clear };
 }
 
-export function useGeminiKey() {
-  const envKey = (import.meta.env["VITE_GEMINI_API_KEY"] as string | undefined) ?? "";
+export function useGroqKey() {
+  const envKey = (import.meta.env["VITE_GROQ_API_KEY"] as string | undefined) ?? "";
   const [saved, setSaved] = useState("");
 
   useEffect(() => {

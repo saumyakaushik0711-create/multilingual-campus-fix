@@ -17,7 +17,7 @@ import {
   toCsv,
   type Ticket,
 } from "@/lib/campusfix";
-import { classifyComplaint, GeminiError, type ClassifyResult } from "@/lib/gemini";
+import { classifyComplaint, GroqError, type ClassifyResult } from "@/lib/groq";
 import { ConfidenceBadge, DeptBadge, UrgencyBadge } from "./meta";
 
 const BULK_SAMPLES = [
@@ -93,7 +93,7 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
       let row: Row;
       try {
         const result = await classifyComplaint(text, apiKey, {
-          onRetry: (attempt) => setRetryNote(`Gemini is busy — retrying (${attempt}/${MAX_RETRIES})`),
+          onRetry: (attempt) => setRetryNote(`Groq is busy — retrying (${attempt}/${MAX_RETRIES})`),
         });
         row = { text, result };
         newTickets.push({
@@ -111,7 +111,7 @@ export function BulkTest({ apiKey, onNeedKey, onTickets }: Props) {
         });
       } catch (e) {
         row = { text, error: e instanceof Error ? e.message : "Failed" };
-        if (e instanceof GeminiError && (e.status === 400 || e.status === 401 || e.status === 403)) {
+        if (e instanceof GroqError && (e.status === 401 || e.status === 403)) {
           out.push(row);
           setRows([...out]);
           toast.error(row.error);

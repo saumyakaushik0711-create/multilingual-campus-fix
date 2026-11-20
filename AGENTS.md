@@ -31,5 +31,5 @@ use the editor.
 
 ## Project rules
 - Pure business rules (departments, routing threshold, cost, JSON/CSV parsing) live in `src/lib/campusfix.ts` with tests in `src/lib/campusfix.test.ts`; keep UI free of these calculations so they stay testable.
-- Gemini is called directly from the browser (`src/lib/gemini.ts`) with a user-supplied key, because the hackathon brief requires a bring-your-own-key settings modal and no backend.
+- Groq (OpenAI-compatible chat completions) is called directly from the browser (`src/lib/groq.ts`) with a user-supplied key, because the hackathon brief requires a bring-your-own-key settings modal and no backend.
 - Tickets and the API key persist in localStorage, read inside `useEffect` (see `src/hooks/use-campusfix.ts`) to avoid SSR hydration mismatches.

@@ -21,10 +21,10 @@ describe("routing", () => {
 });
 
 describe("cost", () => {
-  it("prices $0.10 per 1M input and $0.40 per 1M output tokens at ₹85/USD", () => {
+  it("prices $0.59 per 1M input and $0.79 per 1M output tokens at ₹85/USD", () => {
     const { usd, inr } = computeCost(1_000_000, 1_000_000);
-    expect(usd).toBeCloseTo(0.5, 10);
-    expect(inr).toBeCloseTo(42.5, 10);
+    expect(usd).toBeCloseTo(1.38, 10);
+    expect(inr).toBeCloseTo(117.3, 10);
   });
 });
 
@@ -111,7 +111,7 @@ describe("retry policy", () => {
     expect(calls).toBe(MAX_RETRIES + 1);
   });
 
-  it("does not retry a request Gemini rejected for a real reason", async () => {
+  it("does not retry a request the AI rejected for a real reason", async () => {
     let calls = 0;
     await expect(
       withRetries(

@@ -1,16 +1,14 @@
 import {
   computeCost,
-  DEPARTMENTS,
   isRetryableError,
   normalizeClassification,
   parseModelJson,
-  URGENCIES,
   withRetries,
   type Classification,
 } from "./campusfix";
 
-export const GEMINI_MODEL = "gemini-3.8-flash";
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+export const GROQ_MODEL = "llama-3.3-70b-versatile";
+export const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 export const SYSTEM_PROMPT = `You are CampusFix AI, a complaint router for an Indian college campus.
 Students write in English, Hinglish (Hindi in Roman script) or Romanised Punjabi, with typos and slang
@@ -41,28 +39,7 @@ Rules:
   mixes several issues, or is not clearly a campus issue.
 - reason: ONE short line (max 15 words) explaining why you chose the department.`;
 
-const RESPONSE_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    department: { type: "STRING", enum: [...DEPARTMENTS] },
-    location: {
-      type: "OBJECT",
-      properties: {
-        block: { type: "STRING" },
-        floor: { type: "STRING" },
-        room: { type: "STRING" },
-      },
-      required: ["block", "floor", "room"],
-    },
-    urgency: { type: "STRING", enum: [...URGENCIES] },
-    confidence: { type: "INTEGER" },
-    reason: { type: "STRING" },
-  },
-  required: ["department", "location", "urgency", "confidence", "reason"],
-  propertyOrdering: ["department", "location", "urgency", "confidence", "reason"],
-};
-
-export class GeminiError extends Error {
+export class GroqError extends Error {
   constructor(
     message: string,
     public status: number,
@@ -78,23 +55,23 @@ export interface ClassifyResult {
   outputTokens: number;
   costUsd: number;
   costInr: number;
-  /** Times the request was retried because Gemini reported it was busy. */
+  /** Times the request was retried because Groq reported it was busy. */
   retries: number;
 }
 
 export interface ClassifyOptions {
   /** Called before each wait, with the 1-based retry number and the error that caused it. */
-  onRetry?: (attempt: number, error: GeminiError) => void;
+  onRetry?: (attempt: number, error: GroqError) => void;
 }
 
-interface GeminiResponse {
-  candidates?: { content?: { parts?: { text?: string }[] } }[];
-  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+interface GroqResponse {
+  choices?: { message?: { content?: string | null } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
 }
 
 interface RawReply {
-  json: GeminiResponse;
+  json: GroqResponse;
   latencyMs: number;
 }
 
@@ -104,47 +81,46 @@ export async function classifyComplaint(
   options: ClassifyOptions = {},
 ): Promise<ClassifyResult> {
   const body = {
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: [{ role: "user", parts: [{ text: `Complaint: ${text}` }] }],
-    generationConfig: {
-      temperature: 0,
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
+    model: GROQ_MODEL,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: `Complaint: ${text}` },
+    ],
   };
 
   let retries = 0;
   const { json, latencyMs } = await withRetries(
     async (): Promise<RawReply> => {
       const start = performance.now();
-      const res = await fetch(ENDPOINT, {
+      const res = await fetch(GROQ_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(body),
       });
-      const parsed = (await res.json().catch(() => ({}))) as GeminiResponse;
+      const parsed = (await res.json().catch(() => ({}))) as GroqResponse;
       const elapsed = performance.now() - start;
       if (!res.ok) {
-        throw new GeminiError(parsed.error?.message ?? `Gemini request failed (${res.status})`, res.status);
+        throw new GroqError(parsed.error?.message ?? `Groq request failed (${res.status})`, res.status);
       }
       return { json: parsed, latencyMs: elapsed };
     },
     {
-      isRetryable: (error) => error instanceof GeminiError && isRetryableError(error.status, error.message),
+      isRetryable: (error) => error instanceof GroqError && isRetryableError(error.status, error.message),
       onRetry: (attempt, error) => {
         retries = attempt;
-        options.onRetry?.(attempt, error as GeminiError);
+        options.onRetry?.(attempt, error as GroqError);
       },
     },
   );
 
-  const replyText = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-  if (!replyText) throw new GeminiError("Gemini returned an empty response", 502);
+  const replyText = json.choices?.[0]?.message?.content ?? "";
+  if (!replyText) throw new GroqError("Groq returned an empty response", 502);
 
   const classification = normalizeClassification(parseModelJson(replyText));
-  const promptTokens = json.usageMetadata?.promptTokenCount ?? 0;
-  const outputTokens = json.usageMetadata?.candidatesTokenCount ?? 0;
+  const promptTokens = json.usage?.prompt_tokens ?? 0;
+  const outputTokens = json.usage?.completion_tokens ?? 0;
   const { usd, inr } = computeCost(promptTokens, outputTokens);
 
   return { classification, latencyMs, promptTokens, outputTokens, costUsd: usd, costInr: inr, retries };

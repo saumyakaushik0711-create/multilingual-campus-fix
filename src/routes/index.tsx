@@ -20,9 +20,9 @@ import { DEPT_ICON, ReviewIcon } from "@/components/campusfix/meta";
 import { SettingsDialog } from "@/components/campusfix/SettingsDialog";
 import { SummaryCards } from "@/components/campusfix/SummaryCards";
 import { TicketCard } from "@/components/campusfix/TicketCard";
-import { useGeminiKey, useTickets } from "@/hooks/use-campusfix";
+import { useGroqKey, useTickets } from "@/hooks/use-campusfix";
 import { DEPARTMENTS, MAX_RETRIES, routeStatus, type Department, type Ticket } from "@/lib/campusfix";
-import { classifyComplaint, GeminiError } from "@/lib/gemini";
+import { classifyComplaint, GroqError } from "@/lib/groq";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Route messy English, Hinglish and Punjabi campus complaints to the right department with Gemini — with live cost and latency.",
+          "Route messy English, Hinglish and Punjabi campus complaints to the right department with Llama 3.3 on Groq — with live cost and latency.",
       },
       { property: "og:title", content: "CampusFix AI — Hinglish Complaint Router" },
       {
@@ -50,13 +50,13 @@ type Tab = "all" | "review" | Department | "bulk";
 
 function Index() {
   const { tickets, loaded, add, approve, remove, clear } = useTickets();
-  const { apiKey, saved, source, save } = useGeminiKey();
+  const { apiKey, saved, source, save } = useGroqKey();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
   const [busy, setBusy] = useState(false);
 
   const needKey = () => {
-    toast.error("Add your Gemini API key first");
+    toast.error("Add your Groq API key first");
     setSettingsOpen(true);
   };
 
@@ -68,7 +68,7 @@ function Index() {
     setBusy(true);
     try {
       const r = await classifyComplaint(text, apiKey, {
-        onRetry: (attempt) => toast.info(`Gemini is busy — retrying (${attempt}/${MAX_RETRIES})`),
+        onRetry: (attempt) => toast.info(`Groq is busy — retrying (${attempt}/${MAX_RETRIES})`),
       });
       const status = routeStatus(r.classification.confidence);
       const ticket: Ticket = {
@@ -96,7 +96,7 @@ function Index() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
       toast.error(msg);
-      if (e instanceof GeminiError && (e.status === 400 || e.status === 401 || e.status === 403)) {
+      if (e instanceof GroqError && (e.status === 401 || e.status === 403)) {
         setSettingsOpen(true);
       }
       return false;
@@ -183,7 +183,7 @@ function Index() {
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">
         {/* Hero band */}
         <section className="bg-dots relative overflow-hidden rounded-3xl bg-ink p-6 text-ink-foreground sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Gemini 3.8 Flash · live routing</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Llama 3.3 70B on Groq · live routing</p>
           <h1 className="mt-2 max-w-2xl text-3xl font-extrabold leading-[1.05] sm:text-4xl">
             “Tap leak kar rha h” → <span className="text-accent">Plumbing, 4th floor, Medium.</span>
           </h1>
@@ -193,7 +193,7 @@ function Index() {
           </p>
           {source === "none" && (
             <Button variant="accent" className="mt-5" onClick={() => setSettingsOpen(true)}>
-              <KeyRound /> Add Gemini API key to start
+              <KeyRound /> Add Groq API key to start
             </Button>
           )}
         </section>

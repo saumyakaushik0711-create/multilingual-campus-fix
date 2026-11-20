@@ -63,7 +63,7 @@ export function ComplaintForm({ onSubmit, busy }: Props) {
 
       <Button variant="hero" size="lg" className="mt-5 w-full" onClick={submit} disabled={busy || !text.trim()}>
         {busy ? <Loader2 className="animate-spin" /> : <Send />}
-        {busy ? "Routing with Gemini…" : "Classify & route"}
+        {busy ? "Routing with Groq…" : "Classify & route"}
       </Button>
     </section>
   );
