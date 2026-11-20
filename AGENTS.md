@@ -33,4 +33,5 @@ use the editor.
 - Pure business rules (departments, routing threshold, cost, JSON/CSV parsing) live in `src/lib/campusfix.ts` with tests in `src/lib/campusfix.test.ts`; keep UI free of these calculations so they stay testable.
 - Groq (OpenAI-compatible chat completions) is called directly from the browser (`src/lib/groq.ts`) with a user-supplied key, because the hackathon brief requires a bring-your-own-key settings modal and no backend.
 - The Groq model is chosen at runtime from the live `/models` list (filter and pick rules in `campusfix.ts`, fetch in `groq.ts`) and stored in localStorage; `GROQ_MODEL` is only the fallback, so never hardcode a model in calls.
-- Tickets, the API key and the chosen model persist in localStorage, read inside `useEffect` (see `src/hooks/use-campusfix.ts`) to avoid SSR hydration mismatches.
+- Tickets live in the shared `tickets` table (Lovable Cloud) via `src/lib/tickets-db.ts`, with a realtime subscription in `useTickets`, so every device sees the same board; duplicate matching/merge rules stay pure in `campusfix.ts` and the DB layer only applies them.
+- The API key and the chosen model stay per-browser in localStorage, read inside `useEffect` (see `src/hooks/use-campusfix.ts`) to avoid SSR hydration mismatches.

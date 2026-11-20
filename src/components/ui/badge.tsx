@@ -19,6 +19,7 @@ const badgeVariants = cva(
         low: "border-low/25 bg-low-soft text-low",
         review: "border-review/25 bg-review-soft text-review",
         dept: "border-primary/20 bg-primary-soft text-primary",
+        repeat: "border-accent-foreground/20 bg-accent text-accent-foreground",
       },
     },
     defaultVariants: {

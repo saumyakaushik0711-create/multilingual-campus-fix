@@ -3,13 +3,15 @@ import { fmtInr, fmtMs, fmtUsd, type Ticket } from "@/lib/campusfix";
 
 export function SummaryCards({ tickets }: { tickets: Ticket[] }) {
   const total = tickets.length;
-  const avgLatency = total ? tickets.reduce((s, t) => s + t.latencyMs, 0) / total : 0;
+  const reports = tickets.reduce((s, t) => s + t.reportCount, 0);
+  // Merged tickets store the average latency of their reports, so weight by report count.
+  const avgLatency = reports ? tickets.reduce((s, t) => s + t.latencyMs * t.reportCount, 0) / reports : 0;
   const usd = tickets.reduce((s, t) => s + t.costUsd, 0);
   const inr = tickets.reduce((s, t) => s + t.costInr, 0);
   const review = tickets.filter((t) => t.status === "review").length;
 
   const cards = [
-    { label: "Total tickets", value: total.toString(), sub: "classified so far", icon: Inbox },
+    { label: "Total tickets", value: total.toString(), sub: reports > total ? `${reports} reports, ${reports - total} merged` : "classified so far", icon: Inbox },
     { label: "Avg latency", value: total ? fmtMs(avgLatency) : "—", sub: "per Groq call", icon: Timer },
     { label: "Total cost", value: fmtUsd(usd, 5), sub: fmtInr(inr, 3), icon: Coins },
     { label: "Needs review", value: review.toString(), sub: "confidence < 75%", icon: UserCheck },

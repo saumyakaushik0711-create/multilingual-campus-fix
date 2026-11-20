@@ -83,6 +83,41 @@ export interface Ticket {
   outputTokens: number;
   costUsd: number;
   costInr: number;
+  /** How many complaints were merged into this ticket (1 = only the original). */
+  reportCount: number;
+  /** Texts of the later complaints merged into this ticket. */
+  duplicateTexts: string[];
+  /** When the newest complaint for this ticket arrived. */
+  lastReportedAt: number;
+}
+
+export interface ClassifiedComplaint {
+  classification: Classification;
+  latencyMs: number;
+  promptTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  costInr: number;
+}
+
+/** A fresh single-report ticket for a classified complaint, routed by its confidence. */
+export function buildTicket(text: string, r: ClassifiedComplaint, now = Date.now()): Ticket {
+  return {
+    id: crypto.randomUUID(),
+    text,
+    createdAt: now,
+    classification: r.classification,
+    department: r.classification.department,
+    status: routeStatus(r.classification.confidence),
+    latencyMs: r.latencyMs,
+    promptTokens: r.promptTokens,
+    outputTokens: r.outputTokens,
+    costUsd: r.costUsd,
+    costInr: r.costInr,
+    reportCount: 1,
+    duplicateTexts: [],
+    lastReportedAt: now,
+  };
 }
 
 export function computeCost(promptTokens: number, outputTokens: number) {
@@ -95,6 +130,66 @@ export function computeCost(promptTokens: number, outputTokens: number) {
 /** Below the threshold goes to human review; at or above goes to the department queue. */
 export function routeStatus(confidence: number): Extract<TicketStatus, "routed" | "review"> {
   return confidence < CONFIDENCE_THRESHOLD ? "review" : "routed";
+}
+
+const URGENCY_RANK: Record<Urgency, number> = { High: 3, Medium: 2, Low: 1 };
+
+/** The more urgent of two urgencies. */
+export function maxUrgency(a: Urgency, b: Urgency): Urgency {
+  return URGENCY_RANK[a] >= URGENCY_RANK[b] ? a : b;
+}
+
+function locationPartKey(part: string): string {
+  if (part === NOT_SPECIFIED) return "";
+  return part
+    .toLowerCase()
+    .replace(/\b(block|blk|floor|flr|room|rm|no\.?)\b/g, "")
+    .replace(/\b(\d+)(st|nd|rd|th)\b/g, "$1")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Key used to spot duplicate complaints: same department and same block/floor/room
+ * (case, spacing and "4th" vs "4" ignored). Null when no location part is known,
+ * so vague complaints are never merged together.
+ */
+export function duplicateKey(location: Location): string | null {
+  const parts = [location.block, location.floor, location.room].map(locationPartKey);
+  return parts.some(Boolean) ? parts.join("|") : null;
+}
+
+/** True when `incoming` should be merged into `existing` instead of becoming a new ticket. */
+export function isDuplicate(existing: Pick<Ticket, "department" | "classification">, department: Department, location: Location): boolean {
+  const key = duplicateKey(location);
+  return key !== null && existing.department === department && duplicateKey(existing.classification.location) === key;
+}
+
+/**
+ * Folds a repeat complaint into an existing ticket: report count +1, its text kept,
+ * the more urgent urgency wins, costs and tokens add up, latency becomes the average per call.
+ */
+export function mergeTicket(existing: Ticket, incoming: Ticket): Ticket {
+  const reportCount = existing.reportCount + incoming.reportCount;
+  return {
+    ...existing,
+    classification: {
+      ...existing.classification,
+      urgency: maxUrgency(existing.classification.urgency, incoming.classification.urgency),
+    },
+    reportCount,
+    duplicateTexts: [...existing.duplicateTexts, incoming.text, ...incoming.duplicateTexts],
+    lastReportedAt: Math.max(existing.lastReportedAt, incoming.lastReportedAt),
+    latencyMs: (existing.latencyMs * existing.reportCount + incoming.latencyMs * incoming.reportCount) / reportCount,
+    promptTokens: existing.promptTokens + incoming.promptTokens,
+    outputTokens: existing.outputTokens + incoming.outputTokens,
+    costUsd: existing.costUsd + incoming.costUsd,
+    costInr: existing.costInr + incoming.costInr,
+  };
+}
+
+/** "Reported 2 times" style label, or null for a single report. */
+export function reportLabel(count: number): string | null {
+  return count > 1 ? `Reported ${count} times` : null;
 }
 
 const BUSY_RE =

@@ -1,48 +1,103 @@
 import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_MODEL, pickBestModel, type Department, type Ticket } from "@/lib/campusfix";
 import { fetchChatModels } from "@/lib/groq";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  approveTicket,
+  clearTickets,
+  fetchTickets,
+  removeTicket,
+  reportTicket,
+  type ReportResult,
+} from "@/lib/tickets-db";
 
-const TICKETS_KEY = "campusfix.tickets.v1";
 const API_KEY_KEY = "campusfix.groqKey";
 const MODEL_KEY = "campusfix.groqModel";
 const MODELS_KEY = "campusfix.groqModels";
 
+/** Live shared tickets from the database; refreshes whenever anyone, anywhere, changes one. */
 export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(TICKETS_KEY);
-      if (raw) setTickets(JSON.parse(raw) as Ticket[]);
-    } catch {
-      /* corrupted storage — start fresh */
+      setTickets(await fetchTickets());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load tickets");
+    } finally {
+      setLoaded(true);
     }
-    setLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (loaded) localStorage.setItem(TICKETS_KEY, JSON.stringify(tickets));
-  }, [tickets, loaded]);
+    void reload();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const channel = supabase
+      .channel(`tickets-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => void reload(), 150);
+      })
+      .subscribe();
+    return () => {
+      clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [reload]);
 
-  const add = useCallback((t: Ticket | Ticket[]) => {
-    const list = Array.isArray(t) ? t : [t];
-    setTickets((prev) => [...list, ...prev]);
-  }, []);
+  /** Saves tickets one by one (so repeats inside a batch merge too); returns how many were merged. */
+  const add = useCallback(
+    async (t: Ticket | Ticket[]) => {
+      const list = Array.isArray(t) ? t : [t];
+      const results: ReportResult[] = [];
+      try {
+        for (const item of list) results.push(await reportTicket(item));
+      } finally {
+        await reload();
+      }
+      return results;
+    },
+    [reload],
+  );
 
-  const approve = useCallback((id: string, department: Department) => {
-    setTickets((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, department, status: "approved" } : t)),
-    );
-  }, []);
+  const approve = useCallback(
+    async (id: string, department: Department) => {
+      const t = tickets.find((x) => x.id === id);
+      if (!t) throw new Error("Ticket not found");
+      try {
+        return await approveTicket(t, department);
+      } finally {
+        await reload();
+      }
+    },
+    [tickets, reload],
+  );
 
-  const remove = useCallback((id: string) => {
-    setTickets((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  const remove = useCallback(
+    async (id: string) => {
+      setTickets((prev) => prev.filter((t) => t.id !== id));
+      try {
+        await removeTicket(id);
+      } finally {
+        await reload();
+      }
+    },
+    [reload],
+  );
 
-  const clear = useCallback(() => setTickets([]), []);
+  const clear = useCallback(async () => {
+    setTickets([]);
+    try {
+      await clearTickets();
+    } finally {
+      await reload();
+    }
+  }, [reload]);
 
-  return { tickets, loaded, add, approve, remove, clear };
+  return { tickets, loaded, error, add, approve, remove, clear };
 }
 
 export function useGroqKey() {

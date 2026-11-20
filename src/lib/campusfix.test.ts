@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildTicket,
+  duplicateKey,
+  isDuplicate,
+  maxUrgency,
+  mergeTicket,
+  reportLabel,
+  type Department,
+  type Ticket,
   chatModels,
   complaintsFromCsv,
   pickBestModel,
@@ -172,5 +180,77 @@ describe("model choice", () => {
   it("falls back to the first chat model returned, never a speech model", () => {
     expect(pickBestModel(["whisper-large-v3", "gemma2-9b-it", "openai/gpt-oss-20b"])).toBe("gemma2-9b-it");
     expect(pickBestModel(["whisper-large-v3"])).toBeNull();
+  });
+});
+
+describe("duplicate detection", () => {
+  const loc = (block: string, floor: string, room: string) => ({ block, floor, room });
+  const NS = "Not specified";
+  const make = (text: string, department: Department, location: ReturnType<typeof loc>, extra: Partial<Ticket> = {}) => ({
+    ...buildTicket(
+      text,
+      {
+        classification: { department, location, urgency: "Low", confidence: 90, reason: "r" },
+        latencyMs: 100,
+        promptTokens: 1000,
+        outputTokens: 100,
+        costUsd: 0.001,
+        costInr: 0.085,
+      },
+      1_000,
+    ),
+    ...extra,
+  });
+
+  it("treats the same department and location as a duplicate, ignoring case and '4th' vs '4'", () => {
+    const a = make("tap leak", "Plumbing", loc(NS, "4th", NS));
+    expect(isDuplicate(a, "Plumbing", loc(NS, "4", NS))).toBe(true);
+    expect(isDuplicate(make("x", "Electrical", loc("BH-2", NS, "304")), "Electrical", loc("bh 2", NS, "Room 304"))).toBe(true);
+  });
+
+  it("does not merge across departments", () => {
+    const a = make("tap leak", "Plumbing", loc(NS, "4th", NS));
+    expect(isDuplicate(a, "Electrical", loc(NS, "4th", NS))).toBe(false);
+  });
+
+  it("does not merge different rooms in the same block", () => {
+    const a = make("fan", "Electrical", loc("BH-2", NS, "304"));
+    expect(isDuplicate(a, "Electrical", loc("BH-2", NS, "305"))).toBe(false);
+  });
+
+  it("never merges complaints with no location at all", () => {
+    expect(duplicateKey(loc(NS, NS, NS))).toBeNull();
+    const a = make("vague", "Other", loc(NS, NS, NS));
+    expect(isDuplicate(a, "Other", loc(NS, NS, NS))).toBe(false);
+  });
+
+  it("merging makes the badge read 'Reported 2 times' and keeps the second complaint's text", () => {
+    const a = make("tap leak", "Plumbing", loc(NS, "4th", NS));
+    const b = make("4th floor tap still leaking", "Plumbing", loc(NS, "4", NS), { lastReportedAt: 5_000 });
+    const m = mergeTicket(a, b);
+    expect(m.reportCount).toBe(2);
+    expect(reportLabel(m.reportCount)).toBe("Reported 2 times");
+    expect(m.duplicateTexts).toEqual(["4th floor tap still leaking"]);
+    expect(m.id).toBe(a.id);
+    expect(m.lastReportedAt).toBe(5_000);
+  });
+
+  it("shows no badge for a single report", () => {
+    expect(reportLabel(1)).toBeNull();
+  });
+
+  it("adds up cost and tokens, averages latency and keeps the higher urgency", () => {
+    const a = make("a", "Mess", loc("A", NS, NS));
+    const b = make("b", "Mess", loc("A", NS, NS), {
+      latencyMs: 300,
+      costUsd: 0.002,
+      classification: { ...a.classification, urgency: "High" },
+    });
+    const m = mergeTicket(a, b);
+    expect(m.costUsd).toBeCloseTo(0.003, 10);
+    expect(m.promptTokens).toBe(2000);
+    expect(m.latencyMs).toBe(200);
+    expect(m.classification.urgency).toBe("High");
+    expect(maxUrgency("Low", "Medium")).toBe("Medium");
   });
 });

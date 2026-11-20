@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Check, Coins, MapPin, Timer, Trash2 } from "lucide-react";
+import { Check, Coins, MapPin, Repeat2, Timer, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DEPARTMENTS, fmtInr, fmtMs, fmtUsd, formatLocation, type Department, type Ticket } from "@/lib/campusfix";
+import { DEPARTMENTS, fmtInr, fmtMs, fmtUsd, formatLocation, reportLabel, type Department, type Ticket } from "@/lib/campusfix";
 import { ConfidenceBadge, DeptBadge, UrgencyBadge } from "./meta";
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
 export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
   const [reassign, setReassign] = useState<Department>(t.classification.department);
   const c = t.classification;
+  const repeat = reportLabel(t.reportCount);
 
   return (
     <article className="animate-card-in rounded-2xl border bg-card p-4 shadow-card">
@@ -26,6 +27,11 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
         )}
         <UrgencyBadge urgency={c.urgency} />
         <ConfidenceBadge confidence={c.confidence} />
+        {repeat && (
+          <Badge variant="repeat" className="gap-1">
+            <Repeat2 className="size-3" /> {repeat}
+          </Badge>
+        )}
         {t.status === "approved" && (
           <Badge variant="outline" className="gap-1">
             <Check className="size-3" /> Staff approved
@@ -41,6 +47,18 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
       </div>
 
       <p className="mt-3 text-[15px] leading-snug">“{t.text}”</p>
+      {t.duplicateTexts.length > 0 && (
+        <details className="mt-1.5 text-sm text-muted-foreground">
+          <summary className="cursor-pointer select-none font-medium hover:text-foreground">
+            {t.duplicateTexts.length} more report{t.duplicateTexts.length === 1 ? "" : "s"} merged here
+          </summary>
+          <ul className="mt-1.5 space-y-1 border-l-2 pl-3">
+            {t.duplicateTexts.map((d, i) => (
+              <li key={i}>“{d}”</li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="mt-3 flex items-start gap-1.5 text-sm">
         <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -82,7 +100,7 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
         <span>
           {t.promptTokens}+{t.outputTokens} tok
         </span>
-        <span className="ml-auto font-sans">{formatDistanceToNow(t.createdAt, { addSuffix: true })}</span>
+        <span className="ml-auto font-sans">{formatDistanceToNow(t.lastReportedAt, { addSuffix: true })}</span>
       </div>
     </article>
   );

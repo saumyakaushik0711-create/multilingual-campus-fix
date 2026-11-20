@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  buildTicket,
   complaintsFromCsv,
   fmtInr,
   fmtMs,
@@ -42,7 +43,8 @@ interface Props {
   /** Resolves the Groq model to use, auto-picking one from the live list on first use. */
   getModel: (apiKey: string) => Promise<string>;
   onNeedKey: () => void;
-  onTickets: (t: Ticket[]) => void;
+  /** Saves tickets to the shared board; resolves with whether each one merged into an existing ticket. */
+  onTickets: (t: Ticket[]) => Promise<{ merged: boolean }[]>;
 }
 
 export function BulkTest({ apiKey, getModel, onNeedKey, onTickets }: Props) {
@@ -100,19 +102,7 @@ export function BulkTest({ apiKey, getModel, onNeedKey, onTickets }: Props) {
           onRetry: (attempt) => setRetryNote(`Groq is busy — retrying (${attempt}/${MAX_RETRIES})`),
         });
         row = { text, result };
-        newTickets.push({
-          id: crypto.randomUUID(),
-          text,
-          createdAt: Date.now(),
-          classification: result.classification,
-          department: result.classification.department,
-          status: routeStatus(result.classification.confidence),
-          latencyMs: result.latencyMs,
-          promptTokens: result.promptTokens,
-          outputTokens: result.outputTokens,
-          costUsd: result.costUsd,
-          costInr: result.costInr,
-        });
+        newTickets.push(buildTicket(text, result));
       } catch (e) {
         row = { text, error: e instanceof Error ? e.message : "Failed" };
         if (e instanceof GroqError && (e.status === 401 || e.status === 403)) {
@@ -128,9 +118,18 @@ export function BulkTest({ apiKey, getModel, onNeedKey, onTickets }: Props) {
       setRetryNote(null);
     }
 
-    if (addToQueues && newTickets.length) onTickets(newTickets.reverse());
+    let mergedNote = "";
+    if (addToQueues && newTickets.length) {
+      try {
+        const saved = await onTickets(newTickets);
+        const merged = saved.filter((s) => s.merged).length;
+        if (merged) mergedNote = ` · ${merged} merged into existing tickets`;
+      } catch (e) {
+        toast.error(`Couldn't save tickets: ${e instanceof Error ? e.message : "unknown error"}`);
+      }
+    }
     setRunning(false);
-    toast.success(`Processed ${out.length} complaint${out.length === 1 ? "" : "s"}`);
+    toast.success(`Processed ${out.length} complaint${out.length === 1 ? "" : "s"}${mergedNote}`);
   };
 
   const ok = rows.filter((r) => r.result);

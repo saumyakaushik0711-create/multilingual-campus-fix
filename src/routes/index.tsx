@@ -21,7 +21,7 @@ import { SettingsDialog } from "@/components/campusfix/SettingsDialog";
 import { SummaryCards } from "@/components/campusfix/SummaryCards";
 import { TicketCard } from "@/components/campusfix/TicketCard";
 import { useGroqKey, useGroqModel, useTickets } from "@/hooks/use-campusfix";
-import { DEPARTMENTS, MAX_RETRIES, routeStatus, type Department, type Ticket } from "@/lib/campusfix";
+import { buildTicket, DEPARTMENTS, MAX_RETRIES, type Department } from "@/lib/campusfix";
 import { classifyComplaint, GROQ_MODEL, GroqError } from "@/lib/groq";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +49,7 @@ export const Route = createFileRoute("/")({
 type Tab = "all" | "review" | Department | "bulk";
 
 function Index() {
-  const { tickets, loaded, add, approve, remove, clear } = useTickets();
+  const { tickets, loaded, error: ticketsError, add, approve, remove, clear } = useTickets();
   const { apiKey, envKey, saved, source, save } = useGroqKey();
   const { model, models, loading: loadingModels, refresh: refreshModels, ensure: ensureModel } = useGroqModel();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -73,22 +73,21 @@ function Index() {
         model: chosen,
         onRetry: (attempt) => toast.info(`Groq is busy — retrying (${attempt}/${MAX_RETRIES})`),
       });
-      const status = routeStatus(r.classification.confidence);
-      const ticket: Ticket = {
-        id: crypto.randomUUID(),
-        text,
-        createdAt: Date.now(),
-        classification: r.classification,
-        department: r.classification.department,
-        status,
-        latencyMs: r.latencyMs,
-        promptTokens: r.promptTokens,
-        outputTokens: r.outputTokens,
-        costUsd: r.costUsd,
-        costInr: r.costInr,
-      };
-      add(ticket);
-      if (status === "review") {
+      const ticket = buildTicket(text, r);
+      const status = ticket.status;
+      let saved;
+      try {
+        [saved] = await add(ticket);
+      } catch (e) {
+        toast.error(`Couldn't save the ticket: ${e instanceof Error ? e.message : "unknown error"}`);
+        return false;
+      }
+      if (saved?.merged) {
+        toast.success(
+          `Already reported — merged into the existing ${saved.ticket.department} ticket (${saved.ticket.reportCount} reports)`,
+        );
+        setTab((t) => (t === "bulk" || t === "all" ? t : saved.ticket.status === "review" ? "review" : saved.ticket.department));
+      } else if (status === "review") {
         toast.warning(`Low confidence (${r.classification.confidence}%) — sent to Human Review`);
         setTab((t) => (t === "bulk" ? t : "review"));
       } else {
@@ -194,15 +193,17 @@ function Index() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Clear all {tickets.length} tickets?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This removes every ticket saved in this browser. It can't be undone.
+                    This removes every ticket for everyone, on every device. It can't be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => {
-                      clear();
-                      toast("All tickets cleared");
+                      clear().then(
+                        () => toast("All tickets cleared"),
+                        (e: unknown) => toast.error(`Couldn't clear tickets: ${e instanceof Error ? e.message : "unknown error"}`),
+                      );
                     }}
                   >
                     Clear all
@@ -282,7 +283,11 @@ function Index() {
 
             {tab === "bulk" ? (
               <BulkTest apiKey={apiKey} getModel={ensureModel} onNeedKey={needKey} onTickets={add} />
-            ) : !loaded ? null : visible.length === 0 ? (
+            ) : !loaded ? null : ticketsError && tickets.length === 0 ? (
+              <div className="rounded-2xl border border-destructive/40 bg-card p-6 text-center text-sm text-destructive">
+                Couldn't load the shared tickets: {ticketsError}
+              </div>
+            ) : visible.length === 0 ? (
               <EmptyState tab={tab} />
             ) : (
               <div className="grid gap-3 xl:grid-cols-2">
@@ -291,10 +296,21 @@ function Index() {
                     key={t.id}
                     ticket={t}
                     onApprove={(id, d) => {
-                      approve(id, d);
-                      toast.success(`Approved and sent to ${d}`);
+                      approve(id, d).then(
+                        (res) =>
+                          toast.success(
+                            res.merged
+                              ? `Approved — merged into the existing ${d} ticket (${res.ticket.reportCount} reports)`
+                              : `Approved and sent to ${d}`,
+                          ),
+                        (e: unknown) => toast.error(`Couldn't approve: ${e instanceof Error ? e.message : "unknown error"}`),
+                      );
                     }}
-                    onRemove={remove}
+                    onRemove={(id) => {
+                      remove(id).catch((e: unknown) =>
+                        toast.error(`Couldn't delete: ${e instanceof Error ? e.message : "unknown error"}`),
+                      );
+                    }}
                   />
                 ))}
               </div>
