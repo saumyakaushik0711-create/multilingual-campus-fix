@@ -1,6 +1,16 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { FlaskConical, Inbox, KeyRound, LayoutGrid, Settings, Trash2, Wrench } from "lucide-react";
+import {
+  FlaskConical,
+  Inbox,
+  KeyRound,
+  LayoutGrid,
+  Settings,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -18,9 +28,10 @@ import { BulkTest } from "@/components/campusfix/BulkTest";
 import { ComplaintForm } from "@/components/campusfix/ComplaintForm";
 import { DEPT_ICON, ReviewIcon } from "@/components/campusfix/meta";
 import { SettingsDialog } from "@/components/campusfix/SettingsDialog";
+import { StaffDialog } from "@/components/campusfix/StaffDialog";
 import { SummaryCards } from "@/components/campusfix/SummaryCards";
 import { TicketCard } from "@/components/campusfix/TicketCard";
-import { useGroqKey, useGroqModel, useTickets } from "@/hooks/use-campusfix";
+import { useGroqKey, useGroqModel, useStaff, useTickets } from "@/hooks/use-campusfix";
 import { buildTicket, DEPARTMENTS, MAX_RETRIES, type Department } from "@/lib/campusfix";
 import { classifyComplaint, GROQ_MODEL, GroqError } from "@/lib/groq";
 import { cn } from "@/lib/utils";
@@ -51,8 +62,16 @@ type Tab = "all" | "review" | Department | "bulk";
 function Index() {
   const { tickets, loaded, error: ticketsError, add, approve, remove, clear } = useTickets();
   const { apiKey, envKey, saved, source, save } = useGroqKey();
-  const { model, models, loading: loadingModels, refresh: refreshModels, ensure: ensureModel } = useGroqModel();
+  const {
+    model,
+    models,
+    loading: loadingModels,
+    refresh: refreshModels,
+    ensure: ensureModel,
+  } = useGroqModel();
+  const staff = useStaff();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [staffOpen, setStaffOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("all");
   const [busy, setBusy] = useState(false);
 
@@ -79,14 +98,22 @@ function Index() {
       try {
         [saved] = await add(ticket);
       } catch (e) {
-        toast.error(`Couldn't save the ticket: ${e instanceof Error ? e.message : "unknown error"}`);
+        toast.error(
+          `Couldn't save the ticket: ${e instanceof Error ? e.message : "unknown error"}`,
+        );
         return false;
       }
       if (saved?.merged) {
         toast.success(
           `Already reported — merged into the existing ${saved.ticket.department} ticket (${saved.ticket.reportCount} reports)`,
         );
-        setTab((t) => (t === "bulk" || t === "all" ? t : saved.ticket.status === "review" ? "review" : saved.ticket.department));
+        setTab((t) =>
+          t === "bulk" || t === "all"
+            ? t
+            : saved.ticket.status === "review"
+              ? "review"
+              : saved.ticket.department,
+        );
       } else if (status === "review") {
         toast.warning(`Low confidence (${r.classification.confidence}%) — sent to Human Review`);
         setTab((t) => (t === "bulk" ? t : "review"));
@@ -107,7 +134,8 @@ function Index() {
     }
   };
 
-  const isAuthError = (e: unknown) => e instanceof GroqError && (e.status === 401 || e.status === 403);
+  const isAuthError = (e: unknown) =>
+    e instanceof GroqError && (e.status === 401 || e.status === 403);
 
   const loadModels = async (key: string, preferred: string) => {
     const k = key.trim() || apiKey;
@@ -140,7 +168,9 @@ function Index() {
         toast.error("Groq rejected this key — check it and try again");
         return false;
       }
-      toast.warning(`Key saved, but the model list didn't load. Using ${model || GROQ_MODEL} for now.`);
+      toast.warning(
+        `Key saved, but the model list didn't load. Using ${model || GROQ_MODEL} for now.`,
+      );
       return true;
     }
   };
@@ -180,40 +210,66 @@ function Index() {
             <div className="truncate font-display text-base font-extrabold">
               CampusFix <span className="text-primary">AI</span>
             </div>
-            <div className="hidden text-[11px] text-muted-foreground sm:block">Hinglish Complaint Router</div>
+            <div className="hidden text-[11px] text-muted-foreground sm:block">
+              Hinglish Complaint Router
+            </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm" disabled={!tickets.length}>
-                  <Trash2 /> <span className="hidden sm:inline">Clear all</span>
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear all {tickets.length} tickets?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This removes every ticket for everyone, on every device. It can't be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => {
-                      clear().then(
-                        () => toast("All tickets cleared"),
-                        (e: unknown) => toast.error(`Couldn't clear tickets: ${e instanceof Error ? e.message : "unknown error"}`),
-                      );
-                    }}
-                  >
-                    Clear all
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)} aria-label="API key settings">
+            {staff.isStaff && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="sm" disabled={!tickets.length}>
+                    <Trash2 /> <span className="hidden sm:inline">Clear all</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear all {tickets.length} tickets?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes every ticket for everyone, on every device. It can't be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => {
+                        clear().then(
+                          () => toast("All tickets cleared"),
+                          (e: unknown) =>
+                            toast.error(
+                              `Couldn't clear tickets: ${e instanceof Error ? e.message : "unknown error"}`,
+                            ),
+                        );
+                      }}
+                    >
+                      Clear all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            <Button
+              variant={staff.isStaff ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setStaffOpen(true)}
+              aria-label="Staff sign-in"
+            >
+              {staff.isStaff ? <ShieldCheck /> : <UserRound />}
+              <span className="hidden sm:inline">
+                {staff.isStaff ? "Staff" : staff.user ? "Account" : "Staff sign-in"}
+              </span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="API key settings"
+            >
               <span
-                className={cn("size-2 rounded-full", source === "none" ? "bg-destructive" : "bg-low")}
+                className={cn(
+                  "size-2 rounded-full",
+                  source === "none" ? "bg-destructive" : "bg-low",
+                )}
                 aria-hidden
               />
               <Settings /> <span className="hidden sm:inline">API key</span>
@@ -225,13 +281,15 @@ function Index() {
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">
         {/* Hero band */}
         <section className="bg-dots relative overflow-hidden rounded-3xl bg-ink p-6 text-ink-foreground sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Live routing on Groq{model ? ` · ${model}` : ""}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+            Live routing on Groq{model ? ` · ${model}` : ""}
+          </p>
           <h1 className="mt-2 max-w-2xl text-3xl font-extrabold leading-[1.05] sm:text-4xl">
             “Tap leak kar rha h” → <span className="text-accent">Plumbing, 4th floor, Medium.</span>
           </h1>
           <p className="mt-3 max-w-xl text-sm text-ink-foreground/70">
-            Messy complaints in English, Hinglish or Punjabi get sorted into the right queue in milliseconds. Unsure
-            ones go to a human first.
+            Messy complaints in English, Hinglish or Punjabi get sorted into the right queue in
+            milliseconds. Unsure ones go to a human first.
           </p>
           {source === "none" && (
             <Button variant="accent" className="mt-5" onClick={() => setSettingsOpen(true)}>
@@ -261,7 +319,9 @@ function Index() {
                       active
                         ? "border-primary bg-primary text-primary-foreground"
                         : "bg-card text-foreground hover:border-primary/40",
-                      !active && t.id === "review" && counts["review"] ? "border-review/40 text-review" : "",
+                      !active && t.id === "review" && counts["review"]
+                        ? "border-review/40 text-review"
+                        : "",
                     )}
                   >
                     <t.icon className="size-3.5" />
@@ -282,7 +342,12 @@ function Index() {
             </nav>
 
             {tab === "bulk" ? (
-              <BulkTest apiKey={apiKey} getModel={ensureModel} onNeedKey={needKey} onTickets={add} />
+              <BulkTest
+                apiKey={apiKey}
+                getModel={ensureModel}
+                onNeedKey={needKey}
+                onTickets={add}
+              />
             ) : !loaded ? null : ticketsError && tickets.length === 0 ? (
               <div className="rounded-2xl border border-destructive/40 bg-card p-6 text-center text-sm text-destructive">
                 Couldn't load the shared tickets: {ticketsError}
@@ -295,6 +360,8 @@ function Index() {
                   <TicketCard
                     key={t.id}
                     ticket={t}
+                    canManage={staff.isStaff}
+                    onNeedStaff={() => setStaffOpen(true)}
                     onApprove={(id, d) => {
                       approve(id, d).then(
                         (res) =>
@@ -303,12 +370,17 @@ function Index() {
                               ? `Approved — merged into the existing ${d} ticket (${res.ticket.reportCount} reports)`
                               : `Approved and sent to ${d}`,
                           ),
-                        (e: unknown) => toast.error(`Couldn't approve: ${e instanceof Error ? e.message : "unknown error"}`),
+                        (e: unknown) =>
+                          toast.error(
+                            `Couldn't approve: ${e instanceof Error ? e.message : "unknown error"}`,
+                          ),
                       );
                     }}
                     onRemove={(id) => {
                       remove(id).catch((e: unknown) =>
-                        toast.error(`Couldn't delete: ${e instanceof Error ? e.message : "unknown error"}`),
+                        toast.error(
+                          `Couldn't delete: ${e instanceof Error ? e.message : "unknown error"}`,
+                        ),
                       );
                     }}
                   />
@@ -318,6 +390,16 @@ function Index() {
           </div>
         </div>
       </main>
+
+      <StaffDialog
+        open={staffOpen}
+        onOpenChange={setStaffOpen}
+        user={staff.user}
+        isStaff={staff.isStaff}
+        onSignIn={staff.signIn}
+        onSignUp={staff.signUp}
+        onSignOut={staff.signOut}
+      />
 
       <SettingsDialog
         open={settingsOpen}

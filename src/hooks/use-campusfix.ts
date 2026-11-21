@@ -169,3 +169,58 @@ export function useGroqModel() {
 
   return { model, models, loading, refresh, ensure };
 }
+
+/** Staff sign-in state. Staff status comes from the database's roles list, never from the browser. */
+export function useStaff() {
+  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
+  const [isStaff, setIsStaff] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  const check = useCallback(async () => {
+    setChecking(true);
+    try {
+      const { data } = await supabase.auth.getUser();
+      const u = data.user;
+      if (!u) {
+        setUser(null);
+        setIsStaff(false);
+        return;
+      }
+      setUser({ id: u.id, email: u.email ?? "" });
+      const { data: staff } = await supabase.rpc("is_staff", { _user_id: u.id });
+      setIsStaff(staff === true);
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void check();
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") void check();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [check]);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) throw new Error(error.message);
+  }, []);
+
+  /** Returns true when the account still needs its email confirmed. */
+  const signUp = useCallback(async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    if (error) throw new Error(error.message);
+    return !data.session;
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
+
+  return { user, isStaff, checking, signIn, signUp, signOut };
+}

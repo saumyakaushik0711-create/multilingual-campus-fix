@@ -3,16 +3,28 @@ import { formatDistanceToNow } from "date-fns";
 import { Check, Coins, MapPin, Repeat2, Timer, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DEPARTMENTS, fmtInr, fmtMs, fmtUsd, formatLocation, reportLabel, type Department, type Ticket } from "@/lib/campusfix";
+import {
+  DEPARTMENTS,
+  fmtInr,
+  fmtMs,
+  fmtUsd,
+  formatLocation,
+  reportLabel,
+  type Department,
+  type Ticket,
+} from "@/lib/campusfix";
 import { ConfidenceBadge, DeptBadge, UrgencyBadge } from "./meta";
 
 interface Props {
   ticket: Ticket;
   onApprove: (id: string, d: Department) => void;
   onRemove: (id: string) => void;
+  /** Signed-in staff can approve and delete; everyone else sees a sign-in prompt instead. */
+  canManage: boolean;
+  onNeedStaff: () => void;
 }
 
-export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
+export function TicketCard({ ticket: t, onApprove, onRemove, canManage, onNeedStaff }: Props) {
   const [reassign, setReassign] = useState<Department>(t.classification.department);
   const c = t.classification;
   const repeat = reportLabel(t.reportCount);
@@ -37,20 +49,23 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
             <Check className="size-3" /> Staff approved
           </Badge>
         )}
-        <button
-          onClick={() => onRemove(t.id)}
-          className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
-          aria-label="Delete ticket"
-        >
-          <Trash2 className="size-4" />
-        </button>
+        {canManage && (
+          <button
+            onClick={() => onRemove(t.id)}
+            className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+            aria-label="Delete ticket"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        )}
       </div>
 
       <p className="mt-3 text-[15px] leading-snug">“{t.text}”</p>
       {t.duplicateTexts.length > 0 && (
         <details className="mt-1.5 text-sm text-muted-foreground">
           <summary className="cursor-pointer select-none font-medium hover:text-foreground">
-            {t.duplicateTexts.length} more report{t.duplicateTexts.length === 1 ? "" : "s"} merged here
+            {t.duplicateTexts.length} more report{t.duplicateTexts.length === 1 ? "" : "s"} merged
+            here
           </summary>
           <ul className="mt-1.5 space-y-1 border-l-2 pl-3">
             {t.duplicateTexts.map((d, i) => (
@@ -62,7 +77,11 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
 
       <div className="mt-3 flex items-start gap-1.5 text-sm">
         <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
-        <span className={formatLocation(c.location) === "Not specified" ? "text-muted-foreground" : "font-medium"}>
+        <span
+          className={
+            formatLocation(c.location) === "Not specified" ? "text-muted-foreground" : "font-medium"
+          }
+        >
           {formatLocation(c.location)}
         </span>
       </div>
@@ -71,7 +90,18 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
         {c.department} — {c.reason}
       </p>
 
-      {t.status === "review" && (
+      {t.status === "review" && !canManage && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-review-soft p-3">
+          <span className="text-xs font-semibold text-review">
+            Waiting for a staff member to approve
+          </span>
+          <Button size="sm" variant="outline" className="ml-auto" onClick={onNeedStaff}>
+            Staff sign-in
+          </Button>
+        </div>
+      )}
+
+      {t.status === "review" && canManage && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-review-soft p-3">
           <span className="text-xs font-semibold text-review">Assign to</span>
           <select
@@ -100,7 +130,9 @@ export function TicketCard({ ticket: t, onApprove, onRemove }: Props) {
         <span>
           {t.promptTokens}+{t.outputTokens} tok
         </span>
-        <span className="ml-auto font-sans">{formatDistanceToNow(t.lastReportedAt, { addSuffix: true })}</span>
+        <span className="ml-auto font-sans">
+          {formatDistanceToNow(t.lastReportedAt, { addSuffix: true })}
+        </span>
       </div>
     </article>
   );
